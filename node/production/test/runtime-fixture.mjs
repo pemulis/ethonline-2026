@@ -24,12 +24,11 @@ export async function fixture(t, overrides = {}) {
     const wallet = Wallet.createRandom();
     const agent = Wallet.createRandom();
     const localSigner = createLocalSigner(wallet.privateKey);
-    const warnings = [];
     const parsed = parseConfig({
         chainId: 31337, loggerContract, allowedSigners: [agent.address],
         rpcUrl: 'http://rpc.example', ipfsUrl: 'http://ipfs.example',
         receiptTimeoutMs: 1000, operationTimeoutMs: 3000, pollIntervalMs: 5, ...overrides,
-    }, { env: {}, warn: (warning) => warnings.push(warning) });
+    }, { env: {} });
     const config = { ...parsed, port: 0,
         rpc: { ...parsed.rpc, maxRetries: 0 }, ipfs: { ...parsed.ipfs, maxRetries: 0 } };
     const state = { signs: 0, uploads: 0, sends: 0, mined: 0, transactions: [], calls: [],
@@ -90,7 +89,7 @@ export async function fixture(t, overrides = {}) {
         }
         return new Response(JSON.stringify({ jsonrpc: '2.0', id, result }));
     };
-    const setup = { config, state, logs, warnings, wallet, agent, message: await signedMessage(agent),
+    const setup = { config, state, logs, wallet, agent, message: await signedMessage(agent),
         async start() {
             setup.runtime = await startNode(config, signer, { fetch: transport, log: (record) => logs.push(record) });
             t.after(() => setup.runtime.close());

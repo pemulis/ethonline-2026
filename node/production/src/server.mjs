@@ -132,10 +132,9 @@ export function createNodeServer({ config, transactionPreparer, nodeAddress, fet
                     };
                 },
             });
-            outcome = { status: result.status, body: {
-                ...result.body,
-                ...(result.status === 202 ? { publication: result.handleSignedMessageResult } : {}),
-            } };
+            outcome = result.status === 202 ? { status: 200, body: {
+                status: 'logged', signer: result.body.signer, publication: result.handleSignedMessageResult,
+            } } : result;
         } catch (error) {
             if (error instanceof HttpFailure) {
                 outcome = error;

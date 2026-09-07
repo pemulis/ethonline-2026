@@ -1,7 +1,4 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { request as httpRequest } from 'node:http';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -19,8 +16,8 @@ const configInput = {
 test('config fails closed on missing allowlist, chain, and invalid endpoints', () => {
     for (const change of [
         { allowedSigners: [] }, { allowedSigners: undefined }, { chainId: undefined }, { chainId: 1.5 },
-        { loggerContract: '0x' }, { rpcUrl: 'file:///tmp/rpc' }, { stateDir: '' }, { port: 65536 },
-        { stateDir: null }, { stateDir: 42 }, { operationTimeoutMs: 0 }, { operationTimeoutMs: 2_147_483_648 },
+        { loggerContract: '0x' }, { rpcUrl: 'file:///tmp/rpc' }, { port: 65536 },
+        { stateDir: './state' }, { operationTimeoutMs: 0 }, { operationTimeoutMs: 2_147_483_648 },
         { maxFeePerGasWei: '-1' }, { typo: true },
     ]) assert.throws(() => parseConfig({ ...configInput, ...change }));
     const config = parseConfig(configInput, { env: {} });
@@ -45,26 +42,6 @@ test('signer preserves EIP-1559 fields and does not disclose invalid secret valu
     assert.throws(() => createLocalSigner('secret-marker'), (error) => !error.message.includes('secret-marker'));
     const aborted = AbortSignal.abort();
     await assert.rejects(signer.signTransaction(input, aborted));
-});
-
-test('legacy stateDir is ignored without reading, creating, changing, or replaying state', async (t) => {
-    const directory = await mkdtemp(join(tmpdir(), 'oya-unused-state-'));
-    const legacy = join(directory, 'legacy.json');
-    await writeFile(legacy, 'old state is not valid JSON');
-    for (const stateDir of [directory, join(directory, 'missing')]) {
-        const setup = await fixture(t, { stateDir });
-        await setup.start();
-        assert.equal(setup.state.uploads, 0);
-        assert.equal(setup.state.signs, 0);
-        assert.equal(setup.state.sends, 0);
-        assert.equal((await setup.post()).status, 202);
-        await setup.runtime.close();
-        assert.equal(setup.warnings.length, 1);
-        assert.ok(setup.warnings[0].includes('ignored'));
-        assert.ok(!setup.warnings[0].includes(directory));
-    }
-    assert.deepEqual(await readdir(directory), ['legacy.json']);
-    assert.equal(await readFile(legacy, 'utf8'), 'old state is not valid JSON');
 });
 
 test('startup still rejects the wrong chain and absent Logger bytecode', async (t) => {
@@ -123,7 +100,7 @@ test('HTTP rejects unauthenticated and oversized requests before publication', a
     assert.equal(setup.state.uploads, 0);
     assert.equal(setup.state.signs, 0);
     const response = await post(message);
-    assert.equal(response.status, 202);
+    assert.equal(response.status, 200);
     assert.equal((await response.json()).publication.status, 'logged');
     assert.equal(setup.state.uploads, 1);
     assert.equal(setup.state.signs, 1);

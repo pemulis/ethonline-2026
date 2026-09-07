@@ -21,10 +21,10 @@ function endpoint(value, name) {
     }
 }
 
-export function parseConfig(input, { env = process.env, warn = console.warn } = {}) {
+export function parseConfig(input, { env = process.env } = {}) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Config must be an object.');
     const fields = new Set(['host', 'port', 'chainId', 'loggerContract', 'allowedSigners', 'rpcUrl', 'ipfsUrl',
-        'stateDir', 'maxBodyBytes', 'maxTextBytes', 'bodyTimeoutMs', 'receiptTimeoutMs', 'pollIntervalMs',
+        'maxBodyBytes', 'maxTextBytes', 'bodyTimeoutMs', 'receiptTimeoutMs', 'pollIntervalMs',
         'operationTimeoutMs', 'gasLimit', 'maxFeePerGasWei']);
     for (const key of Object.keys(input)) {
         if (!fields.has(key)) throw new Error('Config contains an unsupported field.');
@@ -36,10 +36,6 @@ export function parseConfig(input, { env = process.env, warn = console.warn } = 
     if (input.allowedSigners.length === 0) throw new Error('allowedSigners must not be empty.');
     if (input.host !== undefined && (typeof input.host !== 'string' || !input.host.trim())) {
         throw new Error('host must be a nonempty string.');
-    }
-    if (Object.hasOwn(input, 'stateDir')) {
-        if (typeof input.stateDir !== 'string' || !input.stateDir.trim()) throw new Error('stateDir must be a nonempty string when provided.');
-        warn('stateDir is deprecated and ignored; the node no longer reads or writes publication state.');
     }
     if (input.maxFeePerGasWei !== undefined && !/^[1-9][0-9]{0,77}$/.test(input.maxFeePerGasWei)) {
         throw new Error('maxFeePerGasWei must be a positive decimal string.');

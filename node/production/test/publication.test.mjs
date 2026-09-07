@@ -33,15 +33,16 @@ test('HTTP holds one operation through upload and receipt, then repeats independ
     assert.equal(setup.state.sends, 1);
     receipt.release();
     const response = await pending;
-    assert.equal(response.status, 202);
+    assert.equal(response.status, 200);
     const body = await response.json();
+    assert.equal(body.status, 'logged');
     assert.deepEqual(body.publication, {
         status: 'logged', cid, uri: `ipfs://${cid}`, transactionHash: setup.state.transactions[0].hash,
         blockNumber: '1', nodeAddress: setup.wallet.address, loggerContract,
     });
     assert.equal(Object.hasOwn(body.publication, 'messageId'), false);
     const duplicate = await setup.post();
-    assert.equal(duplicate.status, 202);
+    assert.equal(duplicate.status, 200);
     assert.notEqual((await duplicate.json()).publication.transactionHash, body.publication.transactionHash);
     assert.deepEqual(setup.state.transactions.map((tx) => tx.nonce), [0, 1]);
     assert.equal(setup.state.uploads, 2);
@@ -77,7 +78,7 @@ test('definite failures return sanitized results and release admission', async (
         setup.state.preparationFailure = false;
         setup.state.receiptMode = 'mined';
         assert.equal((await setup.health()).status, 200);
-        assert.equal((await setup.post()).status, 202);
+        assert.equal((await setup.post()).status, 200);
     });
 });
 
@@ -137,7 +138,7 @@ test('overall deadline aborts held I/O and handles pre- and post-submission outc
         held.release();
         if (stage === 'Upload') {
             assert.equal(setup.state.sends, 0);
-            assert.equal((await setup.post()).status, 202);
+            assert.equal((await setup.post()).status, 200);
             assert.equal(setup.state.sends, 1, 'late upload completion must not submit a transaction');
         } else assert.equal((await setup.post()).status, 503);
     });
@@ -168,7 +169,7 @@ test('a disconnected accepted request stays busy and shutdown drains its final r
     await closing;
     assert.equal(setup.state.mined, 1);
     assert.equal(setup.logs.length, 1);
-    assert.equal(setup.logs[0].httpStatus, 202);
+    assert.equal(setup.logs[0].httpStatus, 200);
     assert.equal(setup.logs[0].publication.status, 'logged');
 });
 
