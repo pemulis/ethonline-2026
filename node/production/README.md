@@ -1,6 +1,6 @@
 # Oya production node
 
-This standalone runtime accepts an agent's signed text, publishes the signed JSON to IPFS, and submits its CID to Logger using the node's own account. A `202` response includes the CID, transaction hash, block number, and node address after the kernel verifies a successful receipt and the matching Logger event.
+This standalone runtime accepts an agent's signed text, publishes the signed JSON to IPFS, and submits its CID to Logger using the node's own account. A `200` response includes the CID, transaction hash, block number, and node address after the kernel verifies a successful receipt and the matching Logger event.
 
 The runtime imports `@oyaprotocol/messages`, `@oyaprotocol/ipfs`, and `@oyaprotocol/ethereum` through their package roots. It has no dependency on the legacy agent runner or node daemons. Reimbursement verification, Safe proposals, and DeFi actions are later milestones.
 
@@ -48,7 +48,7 @@ Alternatively, with environment variables already loaded:
 npm --prefix node/production start -- /absolute/path/to/config.json
 ```
 
-Config paths in `stateDir` are relative to the config file. Keep that directory across restarts and on a filesystem that supports atomic rename and fsync. Startup checks the RPC chain and deployed bytecode, checks the state directory's chain/Logger/account identity, acquires its process lock, and attempts to resume an unfinished publication before serving traffic.
+Startup checks the RPC chain and deployed Logger bytecode before serving traffic. The runtime does not use a state directory.
 
 `host` defaults to `127.0.0.1`, and `port` to `8787`. To host it remotely, choose the binding explicitly and provide HTTPS through your hosting environment. Other optional settings are `maxBodyBytes` (16,384), `maxTextBytes` (8,192), `bodyTimeoutMs` (10,000), `receiptTimeoutMs` (60,000), `pollIntervalMs` (1,000), `gasLimit` (200,000), and `maxFeePerGasWei` (decimal string, default 30,000,000,000). Gas and fee values are ceilings; requests above them stop before signing. Transport attempts have a 10-second timeout and up to two kernel-managed retries. Transaction preparation has the kernel's 30-second deadline.
 
@@ -72,10 +72,9 @@ The script signs the complete file, including any final newline. A successful re
 
 ```json
 {
-  "status": "accepted",
+  "status": "logged",
   "signer": "0x...",
   "publication": {
-    "messageId": "...",
     "status": "logged",
     "cid": "bafk...",
     "uri": "ipfs://bafk...",
