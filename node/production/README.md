@@ -2,7 +2,9 @@
 
 This standalone runtime accepts an agent's signed text, publishes the signed JSON to IPFS, and submits its CID to Logger using the node's own account. A `200` response includes the CID, transaction hash, block number, and node address after the kernel verifies a successful receipt and the matching Logger event.
 
-The runtime imports `@oyaprotocol/messages`, `@oyaprotocol/ipfs`, and `@oyaprotocol/ethereum` through their package roots. It has no dependency on the legacy agent runner or node daemons. Reimbursement verification, Safe proposals, and DeFi actions are later milestones.
+After signature and allowlist checks, the HTTP handler calls the kernel's `publishAndLogSignedMessage` directly. One complete operation runs at a time, from IPFS publication through the verified receipt. Additional authenticated requests receive `503 node_busy`; there is no waiting queue.
+
+The runtime imports the hardened libraries through their package roots and uses ethers in `src/signer.mjs` for local transaction signing. The kernels handle publication, transaction preparation, broadcasting, and receipt verification. Kernel signing support remains future work. Reimbursement verification, Safe proposals, and DeFi actions are later integrations.
 
 ## Install and validate
 
@@ -19,7 +21,9 @@ forge test --root contracts --offline -vv
 npm --prefix node/production run smoke:local
 ```
 
-The smoke starts isolated Anvil and offline Kubo processes on loopback ports, deploys Logger through `contracts/script/DeployLogger.s.sol`, and exercises real signed HTTP requests. It checks IPFS retrieval, Logger receipts, rejected signatures, duplicates, concurrent submissions, and restart recovery both before broadcast and after mining. It also rejects startup on a wrong chain or missing contract. It stops its services when finished and prints a temporary directory containing `evidence.json` and service logs.
+The smoke starts isolated Anvil and offline Kubo processes on loopback ports, deploys Logger through `contracts/script/DeployLogger.s.sol`, and exercises real signed HTTP requests. It retrieves each published envelope and checks the mined Logger event, rejects invalid signatures, and rejects startup on a wrong chain or missing contract. With automining disabled, it checks busy rejection while exactly one transaction is pending. After mining, the rejected request succeeds; repeating an earlier completed message creates a separate Logger event with the same CID. The smoke also starts the actual node CLI and verifies its health and signing address. It stops its services when finished and prints a temporary directory containing `evidence.json` and service logs.
+
+Host tests cover failure, deadline, client-disconnect, and shutdown behavior using controlled transports, including proof that rejected requests invoke no publication or signing work. The real smoke checks that busy rejection submits no second transaction. All smoke accounts and gas balances are generated for its disposable local chain.
 
 To leave a working local stack running:
 
@@ -27,7 +31,7 @@ To leave a working local stack running:
 npm --prefix node/production run smoke:local -- --keep-running
 ```
 
-This prints the actual node URL, RPC URL, IPFS URL, Logger address, and state directory. The temporary `.env` contains generated local-only node and agent keys with mode `0600`; the keys are not printed. The local chain is disposable, and offline Kubo makes content available through its local API only. Press Ctrl-C to stop all three services.
+This prints the actual node URL, RPC URL, IPFS URL, Logger address, and temporary artifact directory. That directory contains `config.json` and a `.env` with generated local node and agent keys, written with mode `0600`; the keys are not printed. The local chain is disposable, and offline Kubo makes content available through its local API only. Press Ctrl-C to stop all three services. For deployment-script details, see [`contracts/README.md`](../../contracts/README.md).
 
 ## Configure and start
 
@@ -48,9 +52,22 @@ Alternatively, with environment variables already loaded:
 npm --prefix node/production start -- /absolute/path/to/config.json
 ```
 
-Startup checks the RPC chain and deployed Logger bytecode before serving traffic. The runtime does not use a state directory.
+Startup checks the RPC chain and deployed Logger bytecode before serving traffic. Configuration rejects unsupported fields. There is no state directory, publication journal, process lock, or startup replay.
 
-`host` defaults to `127.0.0.1`, and `port` to `8787`. To host it remotely, choose the binding explicitly and provide HTTPS through your hosting environment. Other optional settings are `maxBodyBytes` (16,384), `maxTextBytes` (8,192), `bodyTimeoutMs` (10,000), `receiptTimeoutMs` (60,000), `pollIntervalMs` (1,000), `gasLimit` (200,000), and `maxFeePerGasWei` (decimal string, default 30,000,000,000). Gas and fee values are ceilings; requests above them stop before signing. Transport attempts have a 10-second timeout and up to two kernel-managed retries. Transaction preparation has the kernel's 30-second deadline.
+`host` defaults to `127.0.0.1`, and `port` to `8787`. To host it remotely, choose the binding explicitly and provide HTTPS through your hosting environment. Other optional settings are:
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `maxBodyBytes` | 16,384 | Maximum HTTP request body size. |
+| `maxTextBytes` | 8,192 | Maximum signed text size. |
+| `bodyTimeoutMs` | 10,000 | Deadline for reading the request body. |
+| `receiptTimeoutMs` | 60,000 | Deadline for observing a transaction receipt. |
+| `operationTimeoutMs` | 180,000 | Overall deadline for the combined publication and logging operation. |
+| `pollIntervalMs` | 1,000 | Interval between receipt polls. |
+| `gasLimit` | 200,000 | Maximum transaction gas limit. |
+| `maxFeePerGasWei` | `"30000000000"` | Maximum fee per gas, as a decimal string. |
+
+Gas and fee values are ceilings; requests above them stop before signing. Transport attempts have a 10-second timeout and up to two kernel-managed retries. Transaction preparation has the kernel's 30-second deadline. The overall operation deadline bounds all stages together, including those retries; the host does not retry the complete operation.
 
 ## Submit a message
 
@@ -88,16 +105,32 @@ The script signs the complete file, including any final newline. A successful re
 
 Retrieve the original signed JSON with `ipfs cat <cid>` against the relevant Kubo repository, or `POST <ipfsUrl>/api/v0/cat?arg=<cid>`. Logger's indexed node address identifies the node transaction signer, while the JSON retains the agent's separate signature.
 
-## Persistence and recovery
+## Results, retries, and shutdown
 
-The node publishes each pair of case-insensitive signer address and exact text once per state directory. A repeated valid request returns its original result even if the signature encoding or address casing differs. To record a new observation, sign new text (for example, include an observation ID). The original accepted envelope is retained on IPFS.
+Every admitted valid request is an independent operation. Repeating the same signed envelope can return the same IPFS CID while producing a new Logger transaction and another gas charge. There is no durable deduplication, exactly-once guarantee, or automatic restart recovery. Even a previously completed message receives `node_busy` while another operation is active.
 
-One new publication may be active at a time. Another new request receives `503` with `node_busy`; retry it later. A valid duplicate of a completed publication remains available during other work. Publication failures return `503` with `publication_incomplete` and any known CID/hash. Provider responses and secret-bearing errors are not returned to clients.
+| HTTP result | Meaning |
+| --- | --- |
+| `200`, `status: "logged"` | IPFS publication and successful mined Logger execution were verified. |
+| `503 node_busy` | Another operation is active. This request did not start; retry later using `Retry-After: 5`. |
+| `503 shutting_down` | The node is draining. This request did not start. |
+| `503 transaction_outcome_unknown` | An earlier transaction outcome is unresolved; the node is unavailable pending operator reconciliation. |
+| `502 publication_failed` | An upstream publication or logging step failed; inspect the outcome and available CID/hash. |
+| `504 operation_timeout` or `504 receipt_timeout` | The overall operation or receipt deadline elapsed; effects may already have occurred. |
+| `500 internal_error` | An unexpected fault occurred; a started operation with an unknown outcome blocks further work. |
 
-Each operation is saved before IPFS upload, after publication, and after signing but before broadcast. A successful result is saved after receipt verification. If an operation is incomplete, other new messages receive `recovery_required` until it is reconciled. Retry the original signed message to resume, or restart the node to attempt recovery automatically. Retained signed bytes are reused. An already-mined receipt is verified without another broadcast. A successful response means mined execution as reported by the configured RPC; it does not claim additional confirmations or protection against later chain reorganizations.
+Validation errors retain their HTTP statuses, including `401` for invalid signatures, `403` for disallowed signers, and `413` for oversized requests. These requests cause no publication or signing. Signature and allowlist checks also run when the node is busy or unavailable.
 
-`GET /healthz` reports `ready` or `recovery_required`, plus whether work is active and its message ID. It describes local lifecycle state; it is not a continuous RPC/IPFS health probe. A missing signature, invalid signature, disallowed signer, wrong method, or oversized request never produces a publication.
+Busy, shutdown, and unavailable rejections include `started: false`. Attempted failures include `started: true` and `loggingOutcome`, with a partial `publication` containing any known CID, URI, transaction hash, and mined block number:
 
-SIGINT/SIGTERM stops accepting requests and drains active work before releasing `runtime.lock`. Following a hard crash, inspect `runtime.lock` (hostname, PID, start time), confirm that process is no longer running, and remove only the stale lock before restarting. Do not delete transaction records to clear a pending operation: the transaction may already be onchain. Persistent reverted transactions, missing events, fee problems, or external nonce use require operator investigation. This first runtime does not implement replacement transactions, automatic fee bumping, or a repair API. Avoid using the same account from another process or host; the local lock cannot coordinate them.
+- `not_submitted`: No Logger transaction was submitted. IPFS publication may still have occurred. The node can accept another operation.
+- `failed`: A validated mined receipt was observed, but execution reverted or Logger verification failed. The nonce was consumed, so the node can accept another operation.
+- `unknown`: The node cannot establish the logging outcome. A known transaction hash is not proof of acceptance or mining. Further authenticated requests receive `503 transaction_outcome_unknown` with no automatic retry advice.
 
-The journal is operator-owned data and grows with accepted messages. Back it up and retain it for the lifetime of the node identity. IPFS content is public once published, including the signed text. Logger accepts opaque CID claims; consumers still verify retrieved content and the agent signature.
+An HTTP failure or lost connection cannot undo IPFS publication or transaction submission. Inspect the returned identifiers and the node account on the configured chain before retrying attempted work. For an unknown outcome, reconcile the transaction externally and deliberately restart only once it is resolved. Restart loses the in-memory unavailable flag; it does not reconcile transactions or recover a lost response. The signing account must be used exclusively by this one process, including across restarts.
+
+`GET /healthz` returns `200` with `status: "ready"` or `"busy"`, or `503` with `"transaction_outcome_unknown"` or `"shutting_down"`. It includes `busy`, chain ID, Logger address, and node address. It describes local lifecycle state and does not continuously probe RPC or IPFS.
+
+A disconnected client does not cancel an admitted operation or release its guard. The operation finishes or reaches its deadline, and the node emits a sanitized `message_result` log containing its final public result. SIGINT/SIGTERM stops admission and waits for active work, including work whose client disconnected. Logs never include raw provider errors or signed transaction bytes; the host persists no intermediate progress.
+
+A successful response confirms mined execution as reported by the configured RPC, without additional confirmation depth or protection against later chain reorganizations. IPFS content is public once published, including the signed text. Logger records CID claims; consumers still verify retrieved content and the agent signature.
