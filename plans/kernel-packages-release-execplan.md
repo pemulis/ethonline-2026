@@ -1,0 +1,87 @@
+# Package and publish the Oya kernels
+
+This ExecPlan follows `PLANS.md`. Status: proposed for review; planning only. After approval, implement one small stage at a time, stopping for the user's line-by-line review. Node changes follow publication.
+
+## Purpose / Big Picture
+
+Publish the four existing `@oyaprotocol` kernels so independent nodes can install reviewed versions without building kernel source. Preserve their APIs and Noble dependencies. Prove the released packages work in a clean external project.
+
+## Progress
+
+- [x] 2026-09-12: Inspected package manifests, exports, build configuration, tests, and repository guidance at `a4421f7`; drafted this plan.
+- [ ] Review plan and resolve release inputs: license, canonical repository URL, npm scope access, and initial version availability.
+- [ ] Stage 1: Prepare release metadata.
+- [ ] Stage 2: Validate and review the exact package archives.
+- [ ] Stage 3: Publish and verify registry installation.
+- [ ] Record the handoff to the node operations plan.
+
+## Surprises & Discoveries
+
+Exports, declarations, and archive file allowlists already exist; all versions are `0.0.0`. No root or kernel-package license file was found. Kernels target ECMAScript 2025; Node validation does not establish support for other runtimes.
+
+## Decision Log
+
+- 2026-09-12 / Codex: Keep four packages with exact internal versions and existing dependencies; avoid unnecessary restructuring.
+- 2026-09-12 / Codex: Propose a coordinated `0.1.0` release, subject to registry availability and review. Record the final version before editing manifests.
+- 2026-09-12 / Codex: Publish reviewed archives through an owner-operated npm session; keep the first release process small.
+- 2026-09-12 / user requirement: Finish packaging/publication before changing the node; preserve small review stages.
+
+## Outcomes & Retrospective
+
+Planning only; no code, installations, tests, or publication performed. Record stage outcomes and released versions here.
+
+## Context and Orientation
+
+`packages/{utils,ethereum,ipfs,messages}` contain the packages; their private workspace root owns TypeScript tooling and stays private. `ethereum` and `ipfs` depend on `utils`; `messages` depends on all three. Only Noble libraries are external runtime dependencies. `packages/AGENTS.md` keeps host wiring outside kernels.
+
+The node uses local `file:` dependencies. Resume `plans/local-log-node-operations-execplan.md` after release; setup exists, readiness and lifecycle commands remain pending.
+
+## Plan of Work
+
+**Stage 1 — Release metadata.** Confirm scope access, version availability, canonical repository URL, and the owner's intended license; do not infer licensing from vendored code. Update four manifests, internal versions, and `packages/package-lock.json`. Include the approved license, explicit public access, and usable documentation links. Retain built ESM exports, declarations, and dependency pins. Build, run existing tests, and review the metadata diff.
+
+**Stage 2 — Archive validation.** Add `packages/test/release.test.mjs` using Node built-ins and the existing TypeScript compiler. Pack compressed `.tgz` archives into a temporary directory, record file lists and SHA-512 integrity values, and install all four together in an external temporary consumer. Clear `NODE_PATH`; disable install scripts and reject workspace symlinks. Verify root imports, a known CID/Logger vector, signature validation, and declaration imports using existing fixtures. Audit shipped code/types/docs/license, including source maps, for unintended files or secrets. Add release instructions to `packages/README.md`; retain reviewed archives and evidence outside the checkout. No blockchain, IPFS service, or real keys are needed.
+
+**Stage 3 — Publish and verify.** Obtain approval of the exact versions, archives, integrity values, and test evidence before publishing. The owner authenticates privately; no tokens enter source, arguments, or plans. Publish the same archives in order: `utils`, `ethereum`, `ipfs`, `messages`, verifying each registry version and integrity. Install exact registry versions into a new consumer and repeat stage 2 checks. Record releases and update the node operations plan's handoff; node implementation remains a subsequent stage.
+
+## Concrete Steps
+
+Future commands, from the repository root unless stated otherwise:
+
+    npm --prefix packages ci --include=dev
+    npm --prefix packages run build
+    node --test packages/utils/test/*.test.js packages/ethereum/test/*.test.js packages/ipfs/test/*.test.js packages/messages/test/*.test.js
+    packages/node_modules/.bin/tsc -p packages/ethereum/tsconfig.type-test.json
+    packages/node_modules/.bin/tsc -p packages/messages/tsconfig.type-test.json
+    node --test packages/test/release.test.mjs
+    git diff --check
+
+Use Node 22, matching CI, and record Node/npm versions. Check available versions with `npm view @oyaprotocol/utils versions --json --registry=https://registry.npmjs.org/`, repeating for all packages. Distinguish missing packages from access/network failures. Refresh the workspace lockfile without upgrading dependencies.
+
+Stage 2 runs `npm pack --workspaces --json --pack-destination <absolute-artifact-directory>` from `packages/`, then `npm install --ignore-scripts --save-exact <four-absolute-archive-paths>` from its empty consumer. Replace placeholders with actual paths; print the retained evidence location.
+
+For the proposed version, the publication command is:
+
+    npm publish /absolute/artifacts/oyaprotocol-utils-0.1.0.tgz --access public --tag latest --registry=https://registry.npmjs.org/
+
+Repeat explicitly for `ethereum`, `ipfs`, and `messages` in that order. Check each with `npm view @oyaprotocol/utils@0.1.0 version dist.integrity --json --registry=https://registry.npmjs.org/`, substituting its name. From a new consumer directory, install:
+
+    npm install --ignore-scripts --save-exact --registry=https://registry.npmjs.org/ @oyaprotocol/utils@0.1.0 @oyaprotocol/ethereum@0.1.0 @oyaprotocol/ipfs@0.1.0 @oyaprotocol/messages@0.1.0
+
+Give `release.test.mjs` a registry-validation mode selected by `OYA_RELEASE_SOURCE=registry`; it uses the finalized manifest versions and repeats the same consumer checks. Run `OYA_RELEASE_SOURCE=registry node --test packages/test/release.test.mjs` after publishing.
+
+## Validation and Acceptance
+
+Existing tests and external consumer checks pass. Registry integrity matches reviewed archives; installed runtime dependencies are only Oya and Noble. Consumers need no build or install hook. Missing license/access blocks publication, but local archive testing can proceed.
+
+## Idempotence and Recovery
+
+Clean up only test-owned resources. Publication is not atomic across packages: after failure, inspect registry state and resume only missing identical artifacts. Published versions cannot be replaced; corrections require a new version. Do not automatically unpublish or move tags. Changed archives require renewed validation and review.
+
+## Artifacts and Notes
+
+Record commit, tool versions, test outcomes, archive inventories/integrities, and released versions. License and npm access remain unverified. [npm pack](https://docs.npmjs.com/cli/v11/commands/npm-pack) creates installable archives; [scoped publication](https://docs.npmjs.com/creating-and-publishing-scoped-public-packages/) requires explicit public access. Packing needs no publication credentials; dependency installation needs registry connectivity.
+
+## Interfaces and Dependencies
+
+Edits: four manifests/license files, workspace lockfile, package READMEs, release test, and plans. Preserve kernel implementations; add no dependencies or release framework. Subsequent node work pins releases, removes kernel building from operator setup, and adjusts CI/tests for released dependencies.
