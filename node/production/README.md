@@ -35,7 +35,15 @@ This prints the actual node URL, RPC URL, IPFS URL, Logger address, and temporar
 
 ## Configure and start
 
-Copy `config.example.json` to the ignored `config.local.json`. Replace the example Logger and agent addresses with your deployment and allowlisted signer addresses. Set `chainId`, `rpcUrl`, and `ipfsUrl` for the intended environment. `ipfsUrl` must be a Kubo-compatible API, with `/api/v0/add` support; a read-only gateway or unrelated pinning API is insufficient.
+Prepare dependencies and private configuration templates from the repository root:
+
+```sh
+npm --prefix node/production run local -- setup
+```
+
+Setup installs from the existing lockfiles, builds the kernel packages, and creates missing `config.local.json` and `.env` files with mode `0600`. Repeating it preserves existing files and their permissions. It uses Node.js built-ins and needs Node 22 or newer and npm; it does not deploy Logger or start services. Template addresses and empty keys must be filled before use. For different file locations, add `--config /absolute/path/to/node.json --env-file /absolute/path/to/node.env`; parent directories must already exist. Relative paths resolve from the directory where you invoked the command. Keep custom files outside the checkout or ignore them in Git.
+
+Edit the ignored `config.local.json` (or copy `config.example.json` there when configuring manually). Replace the example Logger and agent addresses with your deployment and allowlisted signer addresses. Set `chainId`, `rpcUrl`, and `ipfsUrl` for the intended environment. `ipfsUrl` must be a Kubo-compatible API, with `/api/v0/add` support; a read-only gateway or unrelated pinning API is insufficient.
 
 The node account must have gas funds and be dedicated to one runtime. The agent signing key is distinct; it does not need gas to sign a message. Store `OYA_NODE_PRIVATE_KEY` in the ignored `node/production/.env`, or inject it through your process supervisor. Optional `OYA_RPC_AUTHORIZATION` and `OYA_IPFS_AUTHORIZATION` contain complete HTTP Authorization header values. Keep RPC URLs containing credentials in private local config too.
 

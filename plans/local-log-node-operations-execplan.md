@@ -1,6 +1,6 @@
 # Make a local log-only node easy to deploy and run
 
-This ExecPlan follows `PLANS.md`. **Status: proposed for review; no implementation is authorized by this plan-writing request.** After approval, implement one milestone at a time, report the diff and validation, and wait for agreement before proceeding. This preserves the user's requested small review increments.
+This ExecPlan follows `PLANS.md`. **Status: accepted on 2026-09-12; milestone 1 is being implemented in smaller review stages.** The user will personally review every line of code. Report each stage's diff and validation before proceeding to the next stage. This explicit user instruction takes precedence over the repository's default of continuing through milestones.
 
 ## Purpose / Big Picture
 
@@ -8,7 +8,7 @@ An operator should be able to prepare a checkout, configure an Ethereum connecti
 
 “Local deployment” describes where the Oya process runs. Its Ethereum RPC endpoint may be local Anvil or an external Ethereum network. IPFS may likewise be a local Kubo service or a supplied compatible API. Running the Oya node locally must not silently select Anvil, start an Ethereum node, replace an IPFS repository, change chain ID, or generate a new signing account.
 
-The proposed first version runs in the foreground: logs appear in the terminal, Ctrl-C stops admission and drains active work, and another terminal can query status or run an agent. This is the simpler option presented for user preference during planning and is the draft assumption pending review. Background process management can be scoped separately if preferred; this plan does not create a supervisor, PID registry, automatic restart loop, cloud deployment, container setup, or boot-time service.
+The accepted first version runs in the foreground: logs appear in the terminal, Ctrl-C stops admission and drains active work, and another terminal can query status or run an agent. This plan does not create a supervisor, PID registry, automatic restart loop, cloud deployment, container setup, or boot-time service. Treat the local instance as maintained operating tooling with stable configuration and explicit failures. Use Node.js built-ins and the existing necessary dependencies; avoid disposable launch scripts in the operator workflow.
 
 Verification, Safe/Governor proposals, agent strategy implementation, and new kernel signing support are outside this plan. The current single-operation HTTP behavior and ethers signing adapter remain unchanged. Operational configuration and deployment receipts are retained; message progress is not journaled.
 
@@ -17,8 +17,12 @@ Verification, Safe/Governor proposals, agent strategy implementation, and new ke
 - [x] 2026-09-11 00:07Z: Read root `AGENTS.md`, `PLANS.md`, relevant package/contract guidance, current runtime, smoke, client, and Logger deployment interfaces at commit `5817192`.
 - [x] 2026-09-11 00:08Z: Inspected installed Node and Foundry CLI support without making network requests or deploying contracts. Confirmed Node's built-in environment parser is available and Foundry configuration accepts RPC URL/header overrides through `FOUNDRY_ETH_RPC_URL` and `FOUNDRY_ETH_RPC_HEADERS`.
 - [x] 2026-09-11: Drafted the local operations workflow and three reviewable milestones. Dates in this plan are UTC; the user's local date is September 10.
-- [ ] User reviews the plan, including the foreground workflow assumption.
-- [ ] Milestone 1: Setup, configuration checks, foreground running, and status.
+- [x] 2026-09-12: User accepted the plan and requested smaller stages, personal review of every line, and strict dependency discipline for a production-quality local instance.
+- [x] 2026-09-12: Milestone 1a implementation: `local setup`, path overrides, private template creation, focused tests, and usage instructions. Validated actual locked installs/build and template creation with temporary files; fixed Node's handling of the CLI's `--env-file` argument.
+- [x] 2026-09-12: Milestone 1a validation: all 23 host tests passed after the real setup; `git diff --check` passed and no lockfiles or kernel build outputs changed.
+- [ ] User reviews milestone 1a before implementation continues.
+- [ ] Milestone 1b: Configuration/environment loading and read-only readiness checks.
+- [ ] Milestone 1c: Foreground running, status, and graceful shutdown validation.
 - [ ] Milestone 2: Explicit Logger deployment and reuse.
 - [ ] Milestone 3: Local agent-to-node integration evidence and operator instructions.
 
@@ -31,18 +35,21 @@ Verification, Safe/Governor proposals, agent strategy implementation, and new ke
 - A local agent already has a usable wire protocol and example client in `node/production/scripts/send-message.mjs`. Receiving messages does not require an agent-specific package or reimbursement logic.
 - Foundry's script path is relative to the invoking working directory even when using `--root contracts`. Invoke `contracts/script/DeployLogger.s.sol:DeployLogger` from the repository root, as the working smoke does.
 - A read-only configuration probe with non-secret loopback values confirmed `FOUNDRY_ETH_RPC_URL` and a JSON array in `FOUNDRY_ETH_RPC_HEADERS` populate Foundry's `eth_rpc_url` and `eth_rpc_headers`. The same probe did not populate `eth_rpc_url` through `ETH_RPC_URL`. Validate actual script behavior in the local integration test rather than assuming Cast and Forge use identical environment names.
+- Node 23.10.0 consumed `--env-file` even after the script filename, causing setup to exit with code 9 before creating the selected file. `node -- scripts/local-node.mjs` prevents that interpretation. The npm command uses this separator, and a process test passes a nonexistent environment file through the actual npm entry to guard against regression.
 
 ## Decision Log
 
 - Decision: Keep node location separate from Ethereum/IPFS location. Rationale: a local node must still interact with the selected Ethereum network and supplied services. Date/Author: 2026-09-11 / user requirement, recorded by Codex.
-- Proposed decision: Use a foreground local command with terminal logs, status, and Ctrl-C shutdown. Rationale: reuses the existing lifecycle and avoids introducing a background service manager for the first local release. Date/Author: 2026-09-11 / Codex; draft assumption for review.
+- Decision: Use a foreground local command with terminal logs, status, and Ctrl-C shutdown. Rationale: reuses the existing lifecycle and avoids introducing a background service manager for the first local release. Date/Author: proposed 2026-09-11 / Codex; accepted 2026-09-12 / user.
 - Decision: Keep Logger deployment an explicit action; running or restarting the node only uses an existing address. Rationale: service lifecycle operations should not unexpectedly deploy contracts or spend deployment gas. Date/Author: 2026-09-11 / Codex.
 - Decision: Reuse the existing Foundry deployment script and signed-message client. Rationale: the missing work is operating-tool orchestration, not another contract deployer or agent implementation. Date/Author: 2026-09-11 / Codex.
 - Decision: Keep dependencies, kernel interfaces, contract ABI, and runtime message semantics unchanged. Rationale: the scripts can use Node built-ins, the existing host dependencies, and Foundry. Add no compatibility options or migration layer. Date/Author: 2026-09-11 / Codex, following the user's constraints.
+- Decision: Split milestone 1 into setup, readiness, and lifecycle review stages. Rationale: the user reaffirmed that each change must be small enough for personal line-by-line review. Date/Author: 2026-09-12 / Codex, following the user's instruction.
+- Decision: Include existing development dependencies when installing the kernel workspace for setup (`ci --include=dev`). Rationale: its TypeScript compiler is required to build even when the caller has `NODE_ENV=production`; this adds no dependency or lockfile change. Date/Author: 2026-09-12 / Codex.
 
 ## Outcomes & Retrospective
 
-Only this ExecPlan has been created. No scripts, runtime code, package metadata, contracts, or other documentation have been changed. No installation, service startup, test suite, or blockchain transaction has been run for this task.
+Milestone 1a adds the maintained `local setup` command using Node built-ins, three focused tests, a package command, and brief operating instructions. Setup installs/builds from the existing lockfiles and creates private templates without overwriting existing regular files or their permissions. The actual command completed successfully with temporary config/environment destinations, followed by all 23 host tests passing. Existing operator node configuration files were not read or changed. No dependencies, lockfiles, runtime message handling, or contracts changed; no Ethereum or IPFS services were started and no blockchain transaction was submitted. Full milestone 1 still requires configuration loading, readiness checks, and lifecycle commands.
 
 The intended outcome is a usable local node with a stable operator-selected identity and Logger address, exercised by a separate local client process. It does not claim unattended recovery after a crash or persistent availability after the terminal closes. Record each milestone's actual validation and remaining work here when implemented.
 
@@ -54,7 +61,7 @@ The standalone runtime is `node/production/`. `src/config.mjs` validates configu
 
 `node/production/config.example.json` and `.env.example` are templates. The existing default local files, `config.local.json` and `.env`, are ignored by Git. `scripts/send-message.mjs` signs a nonempty ASCII file using `OYA_AGENT_PRIVATE_KEY` and submits the existing JSON envelope. The prior completed runtime plan is `plans/production-node-direct-handler-execplan.md`; its 20 host tests and real local smoke are the regression baseline.
 
-### Proposed operator interface
+### Operator interface
 
 Add one package command, `npm --prefix node/production run local -- <action>`, backed by `node/production/scripts/local-node.mjs`. Support `--config <path>` and `--env-file <path>` for commands that consume settings. Their defaults are `node/production/config.local.json` and `node/production/.env`, resolved from the package location. Resolve supplied relative paths against the caller's original working directory (`INIT_CWD` under npm, otherwise `process.cwd()`), and show absolute paths in examples with overrides. Running from another directory must not break repository-relative build or deployment commands.
 
@@ -82,7 +89,7 @@ Use one new ignored `node/production/deployment.local.json` for successful Logge
 
 The local node requires Node 22 or newer, npm, configured Ethereum RPC access, a funded node account, and a Kubo-compatible IPFS API with publication access. Foundry and the `lib/forge-std` submodule are required only when deploying Logger or running the full local integration fixture. Anvil and Kubo executables are required only for the all-local test path.
 
-`setup` runs `npm --prefix packages ci`, `npm --prefix packages run build`, and `npm --prefix node/production ci` from the repository root. Use lazy imports so the setup action can run before production dependencies are installed. Do not install global tools, upgrade packages, rewrite lockfiles, or reinstall packages during `run`. A failed setup exits nonzero with the failed step identified; repeating it is permitted.
+`setup` runs `npm --prefix packages ci --include=dev`, `npm --prefix packages run build`, and `npm --prefix node/production ci` from the repository root. Use only built-in imports for setup, and lazy imports for later actions that need the kernel or ethers packages, so setup can run before production dependencies are installed. Do not install global tools, upgrade packages, rewrite lockfiles, or reinstall packages during `run`. A failed setup exits nonzero with the failed step identified; repeating it is permitted.
 
 The `check` action uses configured authorization headers. Check chain ID and Logger code through the existing Ethereum RPC API, inspect the node's native balance, and query the IPFS API's version endpoint without uploading. A zero gas balance is a readiness failure; a positive balance is not a guarantee that every later transaction fits the budget. Reachability does not prove IPFS write permission or long-term content availability; the explicit integration test proves publication. These checks must not depend on Anvil-specific RPC methods.
 
@@ -91,6 +98,8 @@ The operator owns the supplied Ethereum and IPFS processes. This CLI must not st
 ## Plan of Work
 
 ### Milestone 1: Prepare and run a configured local node
+
+Implement this milestone in three separate review stages: 1a provides setup, private template creation, path options, and help; 1b loads configuration/environment and implements `check`; 1c implements `run` and `status` with lifecycle tests. Each stage updates this plan and stops for the user's code review. Do not advertise commands as available before their implementation. During 1a, installation is exercised with temporary config destinations; blockchain and IPFS services are not needed.
 
 Implement the `setup`, `check`, `run`, `status`, and help actions in `node/production/scripts/local-node.mjs`, plus the `local` package command. Extract a small `scripts/local-config.mjs` helper only for shared path resolution and environment/config loading if needed. Keep the new tooling out of `packages/` and avoid changing the HTTP runtime.
 
@@ -161,7 +170,7 @@ An alternate config uses explicit paths, for example:
 
 Underlying build/deployment commands used by the wrapper are:
 
-    npm --prefix packages ci
+    npm --prefix packages ci --include=dev
     npm --prefix packages run build
     npm --prefix node/production ci
     git submodule update --init lib/forge-std
@@ -216,6 +225,12 @@ Source changes are reversible through normal review. Do not delete operator conf
 ## Artifacts and Notes
 
 This plan is grounded in the current checkout at `5817192`. The planning probes printed only boolean results for non-secret Foundry RPC configuration and confirmed that the working tree was clean before drafting. No application tests or deployments were run during planning.
+
+Milestone 1a began from clean commit `beda816`. The actual setup validation command, run from the repository root, was:
+
+    npm --prefix node/production run local -- setup --config /private/tmp/oya-local-setup-validation.IUlP6Y/config.json --env-file /private/tmp/oya-local-setup-validation.IUlP6Y/node.env
+
+After adding the Node argument separator, it exited 0 after both locked installs, the kernel build, and template creation. Both files have mode `0600` and contain only example configuration and empty credential fields. No operator node configuration or signing credentials were used. The focused tests inject an installer to prove failure handling and file preservation without repeatedly reinstalling; a separate process test exercises the real npm entry and argument parsing. `npm --prefix node/production test` then passed all 23 tests (zero failures or skips), and `git diff --check` passed. Git status confirmed that no lockfiles or kernel build outputs changed. Stage 1a is ready for review; 1b has not started.
 
 During implementation, record the exact commands and outcomes at each milestone. Final evidence should include the local node URL, chain ID, Logger address, deployment and publication hashes, agent/node public addresses, successful stop/restart checks, and confirmation that temporary services were stopped. Never include environment file contents, private keys, provider credentials, or signed raw transaction bytes in the plan.
 
